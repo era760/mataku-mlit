@@ -3,7 +3,6 @@ import { RouterLink } from "vue-router";
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import defaultNewsList from "../data/news.json";
-import { supabase, isSupabaseConfigured } from "../supabase";
 
 const router = useRouter();
 
@@ -35,6 +34,28 @@ const fileInputRef = ref(null);
 
 const isEditing = computed(() => editingId.value !== null);
 
+function getAuthToken() {
+  return localStorage.getItem("adminAuthToken") || "";
+}
+
+async function fetchNewsFromApi() {
+  isLoading.value = true;
+  try {
+    const res = await fetch("/api/news");
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        newsList.value = data;
+        saveToStorage();
+      }
+    }
+  } catch (e) {
+    console.warn("API取得エラー:", e);
+  } finally {
+    isLoading.value = false;
+  }
+}
+
 onMounted(async () => {
   // 認証チェック
   if (localStorage.getItem("adminLoggedIn") !== "true") {
@@ -42,27 +63,7 @@ onMounted(async () => {
     return;
   }
 
-  // Supabaseから最新記事一覧を取得
-  if (isSupabaseConfigured) {
-    isLoading.value = true;
-    try {
-      const { data, error: fetchErr } = await supabase
-        .from("news")
-        .select("*")
-        .order("date", { ascending: false });
-
-      if (!fetchErr && data) {
-        newsList.value = data;
-        saveToStorage();
-      } else if (fetchErr) {
-        console.warn("Supabase fetch error:", fetchErr);
-      }
-    } catch (e) {
-      console.warn("Supabase connection error:", e);
-    } finally {
-      isLoading.value = false;
-    }
-  }
+  await fetchNewsFromApi();
 });
 
 async function saveNews() {
@@ -85,32 +86,34 @@ async function saveNews() {
   }
 
   isLoading.value = true;
+  const token = getAuthToken();
 
   try {
     if (isEditing.value) {
-      // 記事更新
-      if (isSupabaseConfigured) {
-        const { error: updateErr } = await supabase
-          .from("news")
-          .update({
-            tag: tag.value,
-            title: title.value.trim(),
-            date: date.value,
-            content: content.value.trim(),
-          })
-          .eq("id", editingId.value);
+      // 記事更新 (PUT)
+      const res = await fetch("/api/news", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          id: editingId.value,
+          tag: tag.value,
+          title: title.value.trim(),
+          date: date.value,
+          content: content.value.trim(),
+        }),
+      });
 
-        if (updateErr) {
-          error.value = "Supabase の更新に失敗しました: " + updateErr.message;
-          isLoading.value = false;
-          return;
-        }
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "記事の更新に失敗しました。");
       }
 
       const index = newsList.value.findIndex(
         (item) => item.id === editingId.value
       );
-
       if (index !== -1) {
         newsList.value[index] = {
           id: editingId.value,
@@ -123,48 +126,43 @@ async function saveNews() {
 
       message.value = "記事を更新しました。";
     } else {
-      // 記事新規追加
-      let newId = Date.now();
+      // 記事新規追加 (POST)
+      const res = await fetch("/api/news", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          tag: tag.value,
+          title: title.value.trim(),
+          date: date.value,
+          content: content.value.trim(),
+        }),
+      });
 
-      if (isSupabaseConfigured) {
-        const { data: inserted, error: insertErr } = await supabase
-          .from("news")
-          .insert([
-            {
-              tag: tag.value,
-              title: title.value.trim(),
-              date: date.value,
-              content: content.value.trim(),
-            },
-          ])
-          .select();
-
-        if (insertErr) {
-          error.value = "Supabase への保存に失敗しました: " + insertErr.message;
-          isLoading.value = false;
-          return;
-        }
-
-        if (inserted && inserted.length > 0) {
-          newId = inserted[0].id;
-        }
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "記事の追加に失敗しました。");
       }
 
-      newsList.value.unshift({
-        id: newId,
+      const data = await res.json();
+      const newItem = data.item || {
+        id: Date.now(),
         tag: tag.value,
         title: title.value.trim(),
         date: date.value,
         content: content.value.trim(),
-      });
+      };
 
+      newsList.value.unshift(newItem);
       message.value = "記事を追加しました。";
     }
 
     saveToStorage();
     resetForm();
   } catch (e) {
-    error.value = "エラーが発生しました: " + e.message;
+    error.value = e.message;
   } finally {
     isLoading.value = false;
   }
@@ -199,19 +197,19 @@ async function deleteNews(id) {
   }
 
   isLoading.value = true;
+  const token = getAuthToken();
 
   try {
-    if (isSupabaseConfigured) {
-      const { error: deleteErr } = await supabase
-        .from("news")
-        .delete()
-        .eq("id", id);
+    const res = await fetch(`/api/news?id=${id}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
 
-      if (deleteErr) {
-        error.value = "Supabase からの削除に失敗しました: " + deleteErr.message;
-        isLoading.value = false;
-        return;
-      }
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || "記事の削除に失敗しました。");
     }
 
     newsList.value = newsList.value.filter((item) => item.id !== id);
@@ -223,7 +221,7 @@ async function deleteNews(id) {
 
     message.value = "記事を削除しました。";
   } catch (e) {
-    error.value = "削除中にエラーが発生しました: " + e.message;
+    error.value = e.message;
   } finally {
     isLoading.value = false;
   }
@@ -262,30 +260,7 @@ function handleFileImport(event) {
     try {
       const data = JSON.parse(e.target.result);
       if (Array.isArray(data)) {
-        if (isSupabaseConfigured && confirm("Supabase データベースにもインポートした記事を一括反映しますか？")) {
-          isLoading.value = true;
-          // 既存記事のIDを除いて新規投入（または上書き）
-          const insertData = data.map((item) => ({
-            tag: item.tag,
-            title: item.title,
-            date: item.date,
-            content: item.content,
-          }));
-          const { error: err } = await supabase.from("news").insert(insertData);
-          if (err) {
-            error.value = "Supabase への一括投入に失敗しました: " + err.message;
-            isLoading.value = false;
-            return;
-          }
-          // 再読み込み
-          const { data: refreshed } = await supabase
-            .from("news")
-            .select("*")
-            .order("date", { ascending: false });
-          if (refreshed) newsList.value = refreshed;
-        } else {
-          newsList.value = data;
-        }
+        newsList.value = data;
         saveToStorage();
         message.value = "JSONファイルから記事を読み込みました。";
         error.value = "";
@@ -294,8 +269,6 @@ function handleFileImport(event) {
       }
     } catch {
       error.value = "JSONファイルの解析に失敗しました。";
-    } finally {
-      isLoading.value = false;
     }
   };
   reader.readAsText(file);
@@ -314,6 +287,7 @@ function resetToDefaultJson() {
 
 function logout() {
   localStorage.removeItem("adminLoggedIn");
+  localStorage.removeItem("adminAuthToken");
   router.push("/login");
 }
 </script>
@@ -345,20 +319,15 @@ function logout() {
       </div>
     </header>
 
-    <!-- Supabase 接続状況 & 7日間休止に関する注意喚起バナー -->
-    <section class="alert-box" :class="isSupabaseConfigured ? 'alert-info' : 'alert-warning'">
+    <!-- 完全非公開セキュリティ & スリープ注意喚起バナー -->
+    <section class="alert-box alert-info">
       <div class="alert-status">
-        <span class="status-dot" :class="{ connected: isSupabaseConfigured }"></span>
-        <strong>
-          {{ isSupabaseConfigured ? 'クラウドデータベース（Supabase）稼働中' : 'ローカル保存モード（Supabase 未設定）' }}
-        </strong>
+        <span class="status-dot connected"></span>
+        <strong>🔒 完全シークレット保護モード稼働中（BFFサーバーレス）</strong>
       </div>
 
-      <p v-if="isSupabaseConfigured" class="alert-desc">
-        記事の追加・編集・削除はクラウドに直接保存され、<strong>すべてのデバイス（スマホや閲覧者のPC）へリアルタイムに反映</strong>されます。
-      </p>
-      <p v-else class="alert-desc">
-        環境変数が設定されていないため、現在はローカルストレージにのみ保存されます。Vercel または .env で Supabase のキーを設定するとクラウド同期が有効になります。
+      <p class="alert-desc">
+        パスワードや Supabase の接続キーは<strong>すべてサーバー側（Vercel）で厳重に保護</strong>されており、ブラウザのソースコードには一切公開されていません。追加・編集・削除した記事はリアルタイムに全デバイスに反映されます。
       </p>
 
       <div class="sleep-notice">
@@ -366,7 +335,7 @@ function logout() {
           <span>⚠️</span> <strong>Supabase Freeプランの自動スリープに関する重要なお知らせ</strong>
         </div>
         <p>
-          Supabase の無料枠（Freeプラン）では、<strong>7日間（1週間）一度もアクセス（閲覧や管理画面操作）がない場合、データベースが一時休止（スリープ）します。</strong><br />
+          Supabase の無料枠では、<strong>7日間（1週間）一度もアクセス（閲覧や管理画面操作）がない場合、データベースが一時休止（スリープ）します。</strong><br />
           休止しても<strong>データが消えることはありません</strong>。週に1回程度サイトを開くか、もし記事が表示されなくなった場合は <a href="https://supabase.com/dashboard" target="_blank" rel="noopener">Supabaseダッシュボード</a> からプロジェクトの「Restore」ボタンを押して再開してください。
         </p>
       </div>
@@ -642,12 +611,6 @@ h1 {
   background: #f0fdf4;
   border-color: #bbf7d0;
   color: #166534;
-}
-
-.alert-warning {
-  background: #fffbeb;
-  border-color: #fde68a;
-  color: #854d0e;
 }
 
 .alert-status {

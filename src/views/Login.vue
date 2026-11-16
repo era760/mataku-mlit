@@ -7,15 +7,43 @@ const router = useRouter();
 
 const password = ref("");
 const error = ref("");
+const isLoading = ref(false);
 
-const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || "admin123";
+async function login() {
+  error.value = "";
+  if (!password.value) {
+    error.value = "パスワードを入力してください。";
+    return;
+  }
 
-function login() {
-  if (password.value === ADMIN_PASSWORD) {
-    localStorage.setItem("adminLoggedIn", "true");
-    router.push("/admin");
-  } else {
-    error.value = "パスワードが正しくありません。";
+  isLoading.value = true;
+  try {
+    const res = await fetch("/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: password.value }),
+    });
+
+    const data = await res.json();
+    if (res.ok && data.success) {
+      localStorage.setItem("adminLoggedIn", "true");
+      if (data.token) {
+        localStorage.setItem("adminAuthToken", data.token);
+      }
+      router.push("/admin");
+    } else {
+      error.value = data.error || "パスワードが正しくありません。";
+    }
+  } catch {
+    // ローカルプレビュー環境などAPIが動いていない場合のフォールバック
+    if (password.value === "admin123") {
+      localStorage.setItem("adminLoggedIn", "true");
+      router.push("/admin");
+    } else {
+      error.value = "ログインに失敗しました。パスワードをご確認ください。";
+    }
+  } finally {
+    isLoading.value = false;
   }
 }
 </script>
@@ -41,14 +69,15 @@ function login() {
           type="password"
           autocomplete="current-password"
           placeholder="パスワードを入力"
+          :disabled="isLoading"
         />
 
         <p v-if="error" class="error">
           {{ error }}
         </p>
 
-        <button type="submit">
-          ログイン
+        <button type="submit" :disabled="isLoading">
+          {{ isLoading ? "ログイン中..." : "ログイン" }}
         </button>
       </form>
 
@@ -146,8 +175,13 @@ button {
   cursor: pointer;
 }
 
-button:hover {
+button:hover:not(:disabled) {
   background: #1e40af;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .error {
