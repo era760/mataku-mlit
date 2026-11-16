@@ -3,12 +3,30 @@ import { RouterLink } from "vue-router";
 import NewsItem from "../components/NewsItem.vue";
 import { ref, onMounted } from "vue";
 import defaultNewsList from "../data/news.json";
+import { supabase, isSupabaseConfigured } from "../supabase";
 
 const newsList = ref([]);
+const isLoading = ref(true);
 
-onMounted(() => {
+onMounted(async () => {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabase
+        .from("news")
+        .select("*")
+        .order("date", { ascending: false });
+
+      if (!error && data && data.length > 0) {
+        newsList.value = data;
+        isLoading.value = false;
+        return;
+      }
+    } catch (e) {
+      console.warn("Supabaseからのデータ取得に失敗したためローカルデータを使用します:", e);
+    }
+  }
+
   const saved = localStorage.getItem("newsList");
-
   if (saved) {
     try {
       newsList.value = JSON.parse(saved);
@@ -19,6 +37,7 @@ onMounted(() => {
     newsList.value = defaultNewsList;
     localStorage.setItem("newsList", JSON.stringify(defaultNewsList));
   }
+  isLoading.value = false;
 });
 </script>
 

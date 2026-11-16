@@ -3,6 +3,7 @@ import { RouterLink } from "vue-router";
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import defaultNewsList from "../data/news.json";
+import { supabase, isSupabaseConfigured } from "../supabase";
 
 const router = useRouter();
 
@@ -19,6 +20,7 @@ function getInitialNews() {
 }
 
 const newsList = ref(getInitialNews());
+const isLoading = ref(false);
 
 const tag = ref("お知らせ");
 const title = ref("");
@@ -33,14 +35,37 @@ const fileInputRef = ref(null);
 
 const isEditing = computed(() => editingId.value !== null);
 
-onMounted(() => {
+onMounted(async () => {
   // 認証チェック
   if (localStorage.getItem("adminLoggedIn") !== "true") {
     router.push("/login");
+    return;
+  }
+
+  // Supabaseから最新記事一覧を取得
+  if (isSupabaseConfigured) {
+    isLoading.value = true;
+    try {
+      const { data, error: fetchErr } = await supabase
+        .from("news")
+        .select("*")
+        .order("date", { ascending: false });
+
+      if (!fetchErr && data) {
+        newsList.value = data;
+        saveToStorage();
+      } else if (fetchErr) {
+        console.warn("Supabase fetch error:", fetchErr);
+      }
+    } catch (e) {
+      console.warn("Supabase connection error:", e);
+    } finally {
+      isLoading.value = false;
+    }
   }
 });
 
-function saveNews() {
+async function saveNews() {
   error.value = "";
   message.value = "";
 
@@ -59,36 +84,90 @@ function saveNews() {
     return;
   }
 
-  if (isEditing.value) {
-    const index = newsList.value.findIndex(
-      (item) => item.id === editingId.value
-    );
+  isLoading.value = true;
 
-    if (index !== -1) {
-      newsList.value[index] = {
-        id: editingId.value,
+  try {
+    if (isEditing.value) {
+      // 記事更新
+      if (isSupabaseConfigured) {
+        const { error: updateErr } = await supabase
+          .from("news")
+          .update({
+            tag: tag.value,
+            title: title.value.trim(),
+            date: date.value,
+            content: content.value.trim(),
+          })
+          .eq("id", editingId.value);
+
+        if (updateErr) {
+          error.value = "Supabase の更新に失敗しました: " + updateErr.message;
+          isLoading.value = false;
+          return;
+        }
+      }
+
+      const index = newsList.value.findIndex(
+        (item) => item.id === editingId.value
+      );
+
+      if (index !== -1) {
+        newsList.value[index] = {
+          id: editingId.value,
+          tag: tag.value,
+          title: title.value.trim(),
+          date: date.value,
+          content: content.value.trim(),
+        };
+      }
+
+      message.value = "記事を更新しました。";
+    } else {
+      // 記事新規追加
+      let newId = Date.now();
+
+      if (isSupabaseConfigured) {
+        const { data: inserted, error: insertErr } = await supabase
+          .from("news")
+          .insert([
+            {
+              tag: tag.value,
+              title: title.value.trim(),
+              date: date.value,
+              content: content.value.trim(),
+            },
+          ])
+          .select();
+
+        if (insertErr) {
+          error.value = "Supabase への保存に失敗しました: " + insertErr.message;
+          isLoading.value = false;
+          return;
+        }
+
+        if (inserted && inserted.length > 0) {
+          newId = inserted[0].id;
+        }
+      }
+
+      newsList.value.unshift({
+        id: newId,
         tag: tag.value,
         title: title.value.trim(),
         date: date.value,
         content: content.value.trim(),
-      };
+      });
+
+      message.value = "記事を追加しました。";
     }
 
-    message.value = "記事を更新しました。";
-  } else {
-    newsList.value.unshift({
-      id: Date.now(),
-      tag: tag.value,
-      title: title.value.trim(),
-      date: date.value,
-      content: content.value.trim(),
-    });
-
-    message.value = "記事を追加しました。";
+    saveToStorage();
+    resetForm();
+  } catch (e) {
+    error.value = "エラーが発生しました: " + e.message;
+  } finally {
+    isLoading.value = false;
   }
-
-  saveToStorage();
-  resetForm();
 }
 
 function saveToStorage() {
@@ -114,22 +193,40 @@ function editNews(item) {
   });
 }
 
-function deleteNews(id) {
+async function deleteNews(id) {
   if (!confirm("この記事を削除しますか？")) {
     return;
   }
 
-  newsList.value = newsList.value.filter(
-    (item) => item.id !== id
-  );
+  isLoading.value = true;
 
-  saveToStorage();
+  try {
+    if (isSupabaseConfigured) {
+      const { error: deleteErr } = await supabase
+        .from("news")
+        .delete()
+        .eq("id", id);
 
-  if (editingId.value === id) {
-    resetForm();
+      if (deleteErr) {
+        error.value = "Supabase からの削除に失敗しました: " + deleteErr.message;
+        isLoading.value = false;
+        return;
+      }
+    }
+
+    newsList.value = newsList.value.filter((item) => item.id !== id);
+    saveToStorage();
+
+    if (editingId.value === id) {
+      resetForm();
+    }
+
+    message.value = "記事を削除しました。";
+  } catch (e) {
+    error.value = "削除中にエラーが発生しました: " + e.message;
+  } finally {
+    isLoading.value = false;
   }
-
-  message.value = "記事を削除しました。";
 }
 
 function resetForm() {
@@ -161,11 +258,34 @@ function handleFileImport(event) {
   if (!file) return;
 
   const reader = new FileReader();
-  reader.onload = (e) => {
+  reader.onload = async (e) => {
     try {
       const data = JSON.parse(e.target.result);
       if (Array.isArray(data)) {
-        newsList.value = data;
+        if (isSupabaseConfigured && confirm("Supabase データベースにもインポートした記事を一括反映しますか？")) {
+          isLoading.value = true;
+          // 既存記事のIDを除いて新規投入（または上書き）
+          const insertData = data.map((item) => ({
+            tag: item.tag,
+            title: item.title,
+            date: item.date,
+            content: item.content,
+          }));
+          const { error: err } = await supabase.from("news").insert(insertData);
+          if (err) {
+            error.value = "Supabase への一括投入に失敗しました: " + err.message;
+            isLoading.value = false;
+            return;
+          }
+          // 再読み込み
+          const { data: refreshed } = await supabase
+            .from("news")
+            .select("*")
+            .order("date", { ascending: false });
+          if (refreshed) newsList.value = refreshed;
+        } else {
+          newsList.value = data;
+        }
         saveToStorage();
         message.value = "JSONファイルから記事を読み込みました。";
         error.value = "";
@@ -174,6 +294,8 @@ function handleFileImport(event) {
       }
     } catch {
       error.value = "JSONファイルの解析に失敗しました。";
+    } finally {
+      isLoading.value = false;
     }
   };
   reader.readAsText(file);
@@ -222,6 +344,33 @@ function logout() {
         </button>
       </div>
     </header>
+
+    <!-- Supabase 接続状況 & 7日間休止に関する注意喚起バナー -->
+    <section class="alert-box" :class="isSupabaseConfigured ? 'alert-info' : 'alert-warning'">
+      <div class="alert-status">
+        <span class="status-dot" :class="{ connected: isSupabaseConfigured }"></span>
+        <strong>
+          {{ isSupabaseConfigured ? 'クラウドデータベース（Supabase）稼働中' : 'ローカル保存モード（Supabase 未設定）' }}
+        </strong>
+      </div>
+
+      <p v-if="isSupabaseConfigured" class="alert-desc">
+        記事の追加・編集・削除はクラウドに直接保存され、<strong>すべてのデバイス（スマホや閲覧者のPC）へリアルタイムに反映</strong>されます。
+      </p>
+      <p v-else class="alert-desc">
+        環境変数が設定されていないため、現在はローカルストレージにのみ保存されます。Vercel または .env で Supabase のキーを設定するとクラウド同期が有効になります。
+      </p>
+
+      <div class="sleep-notice">
+        <div class="notice-title">
+          <span>⚠️</span> <strong>Supabase Freeプランの自動スリープに関する重要なお知らせ</strong>
+        </div>
+        <p>
+          Supabase の無料枠（Freeプラン）では、<strong>7日間（1週間）一度もアクセス（閲覧や管理画面操作）がない場合、データベースが一時休止（スリープ）します。</strong><br />
+          休止しても<strong>データが消えることはありません</strong>。週に1回程度サイトを開くか、もし記事が表示されなくなった場合は <a href="https://supabase.com/dashboard" target="_blank" rel="noopener">Supabaseダッシュボード</a> からプロジェクトの「Restore」ボタンを押して再開してください。
+        </p>
+      </div>
+    </section>
 
     <!-- JSON管理セクション -->
     <section class="json-section">
@@ -286,7 +435,7 @@ function logout() {
           <label>
             <span>タグ</span>
 
-            <select v-model="tag">
+            <select v-model="tag" :disabled="isLoading">
               <option value="重要">重要</option>
               <option value="お知らせ">お知らせ</option>
               <option value="その他">その他</option>
@@ -299,6 +448,7 @@ function logout() {
             <input
               v-model="date"
               type="date"
+              :disabled="isLoading"
             />
           </label>
         </div>
@@ -310,6 +460,7 @@ function logout() {
             v-model="title"
             type="text"
             placeholder="記事のタイトル"
+            :disabled="isLoading"
           />
         </label>
 
@@ -319,6 +470,7 @@ function logout() {
           <textarea
             v-model="content"
             placeholder="記事の内容を入力してください。"
+            :disabled="isLoading"
           ></textarea>
         </label>
 
@@ -326,14 +478,16 @@ function logout() {
           <button
             type="submit"
             class="primary-button"
+            :disabled="isLoading"
           >
-            {{ isEditing ? "記事を更新" : "記事を追加" }}
+            {{ isLoading ? "処理中..." : (isEditing ? "記事を更新" : "記事を追加") }}
           </button>
 
           <button
             v-if="isEditing"
             type="button"
             class="secondary-button"
+            :disabled="isLoading"
             @click="resetForm"
           >
             編集をキャンセル
@@ -393,6 +547,7 @@ function logout() {
         <div class="article-actions">
           <button
             type="button"
+            :disabled="isLoading"
             @click="editNews(item)"
           >
             編集
@@ -401,6 +556,7 @@ function logout() {
           <button
             type="button"
             class="delete"
+            :disabled="isLoading"
             @click="deleteNews(item.id)"
           >
             削除
@@ -472,6 +628,80 @@ h1 {
   color: #334155;
 
   cursor: pointer;
+}
+
+/* アラート・注意喚起バナー */
+.alert-box {
+  margin-bottom: 2rem;
+  padding: 1.5rem;
+  border-radius: 0.75rem;
+  border: 1px solid;
+}
+
+.alert-info {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+
+.alert-warning {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #854d0e;
+}
+
+.alert-status {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #eab308;
+}
+
+.status-dot.connected {
+  background: #22c55e;
+  box-shadow: 0 0 6px #22c55e;
+}
+
+.alert-desc {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.sleep-notice {
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 0.5rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  font-size: 0.85rem;
+  color: #334155;
+}
+
+.notice-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+  color: #92400e;
+}
+
+.sleep-notice p {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.sleep-notice a {
+  color: #1e3a8a;
+  text-decoration: underline;
+  font-weight: 600;
 }
 
 .json-section,
@@ -604,8 +834,14 @@ textarea:focus {
   color: white;
 }
 
-.primary-button:hover {
+.primary-button:hover:not(:disabled) {
   background: #1e40af;
+}
+
+.primary-button:disabled,
+.secondary-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .secondary-button {
@@ -723,6 +959,7 @@ time {
     grid-template-columns: 1fr;
   }
 
+  .alert-box,
   .json-section,
   .form-section,
   .articles-section {
