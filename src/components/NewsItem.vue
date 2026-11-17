@@ -62,7 +62,7 @@ defineProps({
 .news-header h4 {
   margin: 0;
   font-size: 1.05rem;
-  font-weight: lighter;
+  font-weight: normal;
   line-height: 1.6;
 }
 
