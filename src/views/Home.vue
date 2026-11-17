@@ -32,8 +32,7 @@ async function fetchNews() {
   } catch (e) {
     console.warn("APIからの取得に失敗しました:", e);
     hasApiError.value = true;
-    apiErrorMessage.value =
-      "最新ニュースの取得に失敗しました。サーバーがスリープ中か、通信エラーが発生しています。";
+    apiErrorMessage.value = "最新ニュースの取得に失敗しました。サーバーがスリープ中か、通信エラーが発生しています。";
 
     // フォールバック表示（localStorage または news.json）
     const saved = localStorage.getItem("newsList");
@@ -88,15 +87,9 @@ onMounted(() => {
         <div v-if="hasApiError" class="api-error-banner">
           <div class="error-header">
             <div class="error-title">
-              <span>⚠️</span>
               <strong>{{ apiErrorMessage }}</strong>
             </div>
-            <button
-              type="button"
-              class="retry-button"
-              :disabled="isLoading"
-              @click="fetchNews"
-            >
+            <button type="button" class="retry-button" :disabled="isLoading" @click="fetchNews">
               {{ isLoading ? "再読み込み中..." : "再読み込み" }}
             </button>
           </div>
@@ -106,21 +99,16 @@ onMounted(() => {
           </p>
         </div>
 
-        <div v-if="isLoading && !hasApiError" class="loading-state">
-          ニュースを読み込んでいます...
-        </div>
+        <div v-if="isLoading && !hasApiError" class="loading-state">ニュースを読み込んでいます...</div>
 
         <NewsItem
           v-else-if="newsList.length > 0"
           :tag="newsList[0].tag"
           :title="newsList[0].title"
           :date="newsList[0].date"
-          :content="newsList[0].content"
-        />
+          :content="newsList[0].content" />
 
-        <p v-else class="empty">
-          現在、ニュースはありません。
-        </p>
+        <p v-else class="empty">現在、ニュースはありません。</p>
       </section>
 
       <section class="news-section">
@@ -132,21 +120,11 @@ onMounted(() => {
           :tag="item.tag"
           :title="item.title"
           :date="item.date"
-          :content="item.content"
-        />
+          :content="item.content" />
 
-        <p v-if="newsList.length <= 1" class="empty">
-          過去のニュースはありません。
-        </p>
+        <p v-if="newsList.length <= 1" class="empty">過去のニュースはありません。</p>
       </section>
     </main>
-
-    <footer>
-      <div>
-        <p>マタク鯖国土交通省</p>
-        <p>Copyright © マタク鯖国土交通省 All Rights Reserved.</p>
-      </div>
-    </footer>
   </div>
 </template>
 
@@ -234,9 +212,6 @@ h2 {
 
   background: white;
   border: 1px solid #e2e8f0;
-  border-radius: 0.75rem;
-
-  box-shadow: 0 4px 16px rgb(0 0 0 / 5%);
 }
 
 .news-section h3 {
@@ -256,7 +231,6 @@ h2 {
   padding: 1rem 1.25rem;
   background: #fef2f2;
   border: 1px solid #fecaca;
-  border-radius: 0.5rem;
 }
 
 .error-header {

@@ -62,7 +62,7 @@ defineProps({
 .news-header h4 {
   margin: 0;
   font-size: 1.05rem;
-  font-weight: 600;
+  font-weight: lighter;
   line-height: 1.6;
 }
 
@@ -76,7 +76,7 @@ defineProps({
   border-radius: 0.25rem;
 
   font-size: 0.8rem;
-  font-weight: 600;
+  font-weight: normal;
 }
 
 .news-tag.important {

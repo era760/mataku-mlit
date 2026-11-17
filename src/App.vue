@@ -8,6 +8,7 @@ import { RouterView } from "vue-router";
 
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@100..900&display=swap');
 
 * {
   box-sizing: border-box;
@@ -19,9 +20,10 @@ html {
 
 body {
   margin: 0;
-  background: #f5f5f5;
+  background: #f1f5f9;
   color: #111827;
   font-family:
+  "Noto Sans JP"
     "Zen Kaku Gothic New",
     "游ゴシック体",
     "Yu Gothic",
