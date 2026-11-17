@@ -23,7 +23,7 @@ body {
   background: #f1f5f9;
   color: #111827;
   font-family:
-    "Noto Sans JP"
+    "Noto Sans JP",
     "Zen Kaku Gothic New",
     "游ゴシック体",
     "Yu Gothic",
