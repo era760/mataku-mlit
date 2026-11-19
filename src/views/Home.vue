@@ -61,7 +61,7 @@ async function fetchNews() {
 async function fetchPolitics() {
   try {
     const response = await fetch(
-      "http://n3.host.ringonw.com:3315/diet.json"
+      "/api/diet"
     );
 
     if (!response.ok) {
