@@ -9,6 +9,11 @@ const isLoading = ref(true);
 const hasApiError = ref(false);
 const apiErrorMessage = ref("");
 
+const primeMinister = ref(null);
+const totalSeats = ref(0);
+const parties = ref([]);
+const landMinister = ref(null);
+
 async function fetchNews() {
   isLoading.value = true;
   hasApiError.value = false;
@@ -16,8 +21,10 @@ async function fetchNews() {
 
   try {
     const res = await fetch("/api/news");
+
     if (res.ok) {
       const data = await res.json();
+
       if (Array.isArray(data)) {
         newsList.value = data;
         isLoading.value = false;
@@ -32,10 +39,11 @@ async function fetchNews() {
   } catch (e) {
     console.warn("APIからの取得に失敗しました:", e);
     hasApiError.value = true;
-    apiErrorMessage.value = "最新ニュースの取得に失敗しました。サーバーがスリープ中か、通信エラーが発生しています。";
+    apiErrorMessage.value =
+      "最新ニュースの取得に失敗しました。サーバーがスリープ中か、通信エラーが発生しています。";
 
-    // フォールバック表示（localStorage または news.json）
     const saved = localStorage.getItem("newsList");
+
     if (saved) {
       try {
         newsList.value = JSON.parse(saved);
@@ -50,8 +58,42 @@ async function fetchNews() {
   }
 }
 
+async function fetchPolitics() {
+  try {
+    const response = await fetch(
+      "http://n3.host.ringonw.com:3315/diet.json"
+    );
+
+    if (!response.ok) {
+      throw new Error(`HTTPエラー: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    primeMinister.value = data.primeMinister;
+    totalSeats.value = data.totalSeats;
+    parties.value = data.parties ?? [];
+
+    const foundMinister = data.cabinet?.find(
+      member => member.role === "運営庁試験大臣"
+    );
+
+    landMinister.value = foundMinister?.name ?? null;
+
+  } catch (e) {
+    console.warn("政治APIの取得に失敗しました:", e);
+
+    // APIが落ちていてもページ自体は動かす
+    primeMinister.value = null;
+    totalSeats.value = 0;
+    parties.value = [];
+    landMinister.value = null;
+  }
+}
+
 onMounted(() => {
   fetchNews();
+  fetchPolitics();
 });
 </script>
 
@@ -78,6 +120,7 @@ onMounted(() => {
 
         <p>国土交通省ホームページへようこそ。</p>
         <p>国土交通省に関する最新情報をお届けします。</p>
+        <p>国土交通大臣：{{ landMinister ?? "不在" }}</p>
       </section>
 
       <section class="news-section">
