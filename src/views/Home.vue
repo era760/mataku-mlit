@@ -75,7 +75,7 @@ async function fetchPolitics() {
     parties.value = data.parties ?? [];
 
     const foundMinister = data.cabinet?.find(
-      member => member.role === "運営庁試験大臣"
+      member => member.role === "国土交通大臣"
     );
 
     landMinister.value = foundMinister?.name ?? null;
