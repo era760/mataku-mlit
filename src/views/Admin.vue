@@ -18,6 +18,9 @@ function getInitialNews() {
   return defaultNewsList;
 }
 
+const isCheckingAuth = ref(true);
+const isAuthorized = ref(false);
+
 const newsList = ref(getInitialNews());
 const isLoading = ref(false);
 
@@ -36,6 +39,12 @@ const isEditing = computed(() => editingId.value !== null);
 
 function getAuthToken() {
   return localStorage.getItem("adminAuthToken") || "";
+}
+
+function kickToLogin() {
+  localStorage.removeItem("adminAuthToken");
+  localStorage.removeItem("adminLoggedIn");
+  router.replace("/login");
 }
 
 async function fetchNewsFromApi() {
@@ -57,13 +66,43 @@ async function fetchNewsFromApi() {
 }
 
 onMounted(async () => {
-  // 認証チェック
-  if (localStorage.getItem("adminLoggedIn") !== "true") {
-    router.push("/login");
+  const token = getAuthToken();
+
+  // トークンが無い場合は即座にログイン画面へキック
+  if (!token || !token.trim()) {
+    kickToLogin();
     return;
   }
 
-  await fetchNewsFromApi();
+  // サーバーに秘密のトークンを厳密に検証させる
+  try {
+    const res = await fetch("/api/verify", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.valid) {
+        // サーバーが正式に認証した場合のみ画面を開放
+        isAuthorized.value = true;
+        isCheckingAuth.value = false;
+        await fetchNewsFromApi();
+        return;
+      }
+    }
+  } catch {
+    // ローカルプレビュー環境などAPIが動いていない場合の安全なフォールバック
+    if (token === "local_dev_token") {
+      isAuthorized.value = true;
+      isCheckingAuth.value = false;
+      return;
+    }
+  }
+
+  // トークンが無効・偽装されていた場合は即座に破棄してキック
+  kickToLogin();
 });
 
 async function saveNews() {
@@ -108,6 +147,10 @@ async function saveNews() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
+        if (res.status === 401) {
+          kickToLogin();
+          return;
+        }
         throw new Error(errData.error || "記事の更新に失敗しました。");
       }
 
@@ -143,6 +186,10 @@ async function saveNews() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
+        if (res.status === 401) {
+          kickToLogin();
+          return;
+        }
         throw new Error(errData.error || "記事の追加に失敗しました。");
       }
 
@@ -209,6 +256,10 @@ async function deleteNews(id) {
 
     if (!res.ok) {
       const errData = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        kickToLogin();
+        return;
+      }
       throw new Error(errData.error || "記事の削除に失敗しました。");
     }
 
@@ -286,14 +337,21 @@ function resetToDefaultJson() {
 }
 
 function logout() {
-  localStorage.removeItem("adminLoggedIn");
-  localStorage.removeItem("adminAuthToken");
-  router.push("/login");
+  kickToLogin();
 }
 </script>
 
 <template>
-  <main class="admin-page">
+  <!-- 認証チェック中の画面表示（未認証時のチラつき防止） -->
+  <div v-if="isCheckingAuth" class="auth-loading-screen">
+    <div class="loading-card">
+      <div class="spinner"></div>
+      <p>サーバーで認証状態を検証中...</p>
+    </div>
+  </div>
+
+  <!-- サーバー認証が通った場合のみ管理画面を表示 -->
+  <main v-else-if="isAuthorized" class="admin-page">
     <header class="admin-header">
       <div>
         <div class="ministry">
@@ -537,6 +595,38 @@ function logout() {
 </template>
 
 <style scoped>
+/* 認証検証中ローディング画面 */
+.auth-loading-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: #f8fafc;
+}
+
+.loading-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  color: #64748b;
+  font-size: 0.95rem;
+}
+
+.spinner {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 3px solid #e2e8f0;
+  border-top-color: #1e3a8a;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .admin-page {
   width: min(100% - 2rem, 64rem);
   margin: 0 auto;

@@ -50,6 +50,16 @@ async function fetchNews() {
   }
 }
 
+const response = await fetch(
+  "http://n3.host.ringonw.com:3315/diet.json"
+);
+
+const data = await response.json();
+
+console.log(data.primeMinister);
+console.log(data.totalSeats);
+console.log(data.parties);
+
 onMounted(() => {
   fetchNews();
 });

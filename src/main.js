@@ -29,11 +29,12 @@ const router = createRouter({
 });
 
 router.beforeEach((to, from, next) => {
-  const isLoggedIn = localStorage.getItem("adminLoggedIn") === "true";
+  const token = localStorage.getItem("adminAuthToken");
+  const hasToken = Boolean(token && token.trim());
 
-  if (to.meta.requiresAuth && !isLoggedIn) {
+  if (to.meta.requiresAuth && !hasToken) {
     next({ name: "login" });
-  } else if (to.name === "login" && isLoggedIn) {
+  } else if (to.name === "login" && hasToken) {
     next({ name: "admin" });
   } else {
     next();

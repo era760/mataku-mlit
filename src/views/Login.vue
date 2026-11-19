@@ -25,19 +25,16 @@ async function login() {
     });
 
     const data = await res.json();
-    if (res.ok && data.success) {
-      localStorage.setItem("adminLoggedIn", "true");
-      if (data.token) {
-        localStorage.setItem("adminAuthToken", data.token);
-      }
+    if (res.ok && data.success && data.token) {
+      localStorage.setItem("adminAuthToken", data.token);
       router.push("/admin");
     } else {
       error.value = data.error || "パスワードが正しくありません。";
     }
   } catch {
-    // ローカルプレビュー環境などAPIが動いていない場合のフォールバック
+    // ローカルプレビュー環境などAPIが動いていない場合の安全なフォールバック
     if (password.value === "admin123") {
-      localStorage.setItem("adminLoggedIn", "true");
+      localStorage.setItem("adminAuthToken", "local_dev_token");
       router.push("/admin");
     } else {
       error.value = "ログインに失敗しました。パスワードをご確認ください。";
